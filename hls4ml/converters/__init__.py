@@ -143,6 +143,9 @@ def _check_hls_config(config, hls_config):
     if 'LayerType' in hls_config:
         config['HLSConfig']['LayerType'] = hls_config['LayerType']
 
+    if 'Flows' in hls_config:
+        config['HLSConfig']['Flows'] = hls_config['Flows']
+
     if 'Optimizers' in hls_config:
         config['HLSConfig']['Optimizers'] = hls_config['Optimizers']
 
@@ -158,7 +161,7 @@ def _check_model_config(model_config):
     else:
         model_config = {}
         model_config['Precision'] = 'ap_fixed<16,6>'
-        model_config['ReuseFactor'] = '1'
+        model_config['ReuseFactor'] = 1
 
     return model_config
 

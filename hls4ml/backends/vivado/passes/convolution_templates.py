@@ -13,8 +13,8 @@ conv_mult_config_template = """struct config{index}_mult : nnet::dense_config {{
     typedef {accum_t.name} accum_t;
     typedef {bias_t.name} bias_t;
     typedef {weight_t.name} weight_t;
-    template<class x_T, class y_T, class res_T>
-    using product = nnet::product::{product_type}<x_T, y_T, res_T>;
+    template<class x_T, class y_T>
+    using product = nnet::product::{product_type}<x_T, y_T>;
 }};\n"""
 
 # Conv1D templates
@@ -222,6 +222,7 @@ class SeparableConv1DConfigTemplate(LayerConfigTemplate):
             params['n_chan'] = input_shape[0]
         
         params['filt_width'] = 1
+        params['stride_width'] = 1
         params['dilation'] = node.get_attr('dilation', 1)
         params['nzeros'] = node.get_weights('pointwise').nzeros
         params['index'] = str(node.index) + '_pointwise'
@@ -305,6 +306,7 @@ class SeparableConv2DConfigTemplate(LayerConfigTemplate):
             params['in_width'] = node.get_output_variable().shape[2]
 
         params['filt_height'] = params['filt_width'] = 1
+        params['stride_height'] = params['stride_width'] = 1
         params['dilation'] = node.get_attr('dilation', 1)
         params['nzeros'] = node.get_weights('pointwise').nzeros
         params['index'] = str(node.index) + '_pointwise'

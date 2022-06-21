@@ -1,27 +1,66 @@
 import os
 
 from hls4ml.backends import VivadoBackend
-from hls4ml.model.flow import get_backend_flows, get_flow, register_flow
+from hls4ml.model.flow import register_flow
+from hls4ml.report import parse_vivado_report
 
 class VivadoAcceleratorBackend(VivadoBackend):
     def __init__(self):
         super(VivadoBackend, self).__init__(name='VivadoAccelerator')
         self._register_flows()
 
-    def make_bitfile(model):
+    def build(self, model, reset=False, csim=True, synth=True, cosim=False, validation=False, export=False, vsynth=False, bitfile=False):
+        # run the VivadoBackend build
+        report = super().build(model, reset=reset, csim=csim, synth=synth, cosim=cosim, validation=validation, export=export, vsynth=vsynth)
+        # Get Config to view Board and Platform
+        from hls4ml.backends import VivadoAcceleratorConfig
+        vivado_accelerator_config=VivadoAcceleratorConfig(model.config, model.get_input_variables(),model.get_output_variables())
+        # now make a bitfile
+        if bitfile:
+            if(vivado_accelerator_config.get_board().startswith('alveo')):
+                self.make_xclbin(model,vivado_accelerator_config.get_platform())       
+            else:
+                curr_dir = os.getcwd()
+                os.chdir(model.config.get_output_dir())
+                try:
+                    os.system('vivado -mode batch -source design.tcl')
+                except:
+                    print("Something went wrong, check the Vivado logs")
+                os.chdir(curr_dir)
+
+        return parse_vivado_report(model.config.get_output_dir())
+
+    def make_xclbin(self,model, platform='xilinx_u250_xdma_201830_2'):
+        """
+
+        Parameters
+        ----------
+        - model : compiled and built hls_model.
+        - platform : development Target Platform, must be installed first. On the host machine is required only the
+                     deployment target platform, both can be found on the Getting Started section of the Alveo card.
+        """
         curr_dir = os.getcwd()
-        os.chdir(model.config.get_output_dir())
+        abs_path_dir=os.path.abspath(model.config.get_output_dir())
+        os.chdir(abs_path_dir)
+        os.makedirs('xo_files', exist_ok=True)
         try:
             os.system('vivado -mode batch -source design.tcl')
         except:
             print("Something went wrong, check the Vivado logs")
-        # These should work but Vivado seems to return before the files are written...
-        # copyfile('{}_vivado_accelerator/project_1.runs/impl_1/design_1_wrapper.bit'.format(model.config.get_project_name()), './{}.bit'.format(model.config.get_project_name()))
-        # copyfile('{}_vivado_accelerator/project_1.srcs/sources_1/bd/design_1/hw_handoff/design_1.hwh'.format(model.config.get_project_name()), './{}.hwh'.format(model.config.get_project_name()))
+        project_name=model.config.get_project_name()
+        ip_repo_path = abs_path_dir + '/'+project_name+'_prj'+'/solution1/impl/ip'
+        os.makedirs('xclbin_files', exist_ok=True)
+        os.chdir(abs_path_dir + '/xclbin_files')
+        # TODO Add other platforms
+        vitis_cmd = "v++ -t hw --platform " + platform + " --link ../xo_files/"+project_name+"_kernel.xo -o'"+project_name+"_kernel.xclbin' --user_ip_repo_paths " + ip_repo_path
+        try:
+            os.system(vitis_cmd)
+        except:
+            print("Something went wrong, check the Vitis/Vivado logs")
         os.chdir(curr_dir)
 
     def create_initial_config(self, board='pynq-z2', part=None, clock_period=5, io_type='io_parallel', interface='axi_stream',
-                              driver='python', input_type='float', output_type='float'):
+                              driver='python', input_type='float', output_type='float',platform='xilinx_u250_xdma_201830_2'):
         '''
         Create initial accelerator config with default parameters
         Args:
@@ -38,6 +77,7 @@ class VivadoAcceleratorBackend(VivadoBackend):
                              will round the number of bits used to the next power-of-2 value.
             output_type: the wrapper output precision. Can be `float` or an `ap_type`. Note:
                               VivadoAcceleratorBackend will round the number of bits used to the next power-of-2 value.
+            platform: development target platform 
 
         Returns:
             populated config
@@ -53,14 +93,13 @@ class VivadoAcceleratorBackend(VivadoBackend):
         config['AcceleratorConfig']['Precision']['Output'] = {}
         config['AcceleratorConfig']['Precision']['Input'] = input_type  # float, double or ap_fixed<a,b>
         config['AcceleratorConfig']['Precision']['Output'] = output_type  # float, double or ap_fixed<a,b>
+        if board.startswith('alveo'):
+            config['AcceleratorConfig']['Platform'] = platform  
+
         return config
 
     def _register_flows(self):
-        #TODO expand this to include new accelerator flow
-        parent_flows = get_backend_flows(backend='vivado')
-        for flow_name in parent_flows:
-            flow = get_flow(flow_name)
-            acc_flow = register_flow(flow_name.replace('vivado:', ''), flow.optimizers, requires=flow.requires, backend=self.name)
-            if ':write' in flow_name:
-                self._writer_flow = acc_flow
-        self._default_flow = 'vivadoaccelerator:ip'
+        vivado_writer = ['vivado:write']
+        vivado_accel_writer = ['vivadoaccelerator:write_hls']
+        self._writer_flow = register_flow('write', vivado_accel_writer, requires=vivado_writer, backend=self.name)
+        self._default_flow = 'vivado:ip'
